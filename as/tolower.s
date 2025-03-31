@@ -1,0 +1,5 @@
+mov al, [0x636000]
+sub al, 0x20
+mov [0x636001], al
+
+done:
