@@ -29,7 +29,7 @@ This lab aims to play with LD_PRELOAD and GOT table and ask the challenge server
 
 challenge server: `nc up.zoolab.org 58164`
 
-### Lab3: Assembly Language Practice
+### Lab4: Assembly Language Practice
 Implement the required functions:
 - time
 - srand, grand, rand
