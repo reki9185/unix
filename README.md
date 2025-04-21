@@ -28,3 +28,11 @@ The encryption and decryption operations can be configured using the ioctl inter
 This lab aims to play with LD_PRELOAD and GOT table and ask the challenge server to solve the sudoku puzzle.
 
 challenge server: `nc up.zoolab.org 58164`
+
+### Lab3: Assembly Language Practice
+Implement the required functions:
+- time
+- srand, grand, rand
+- sigemptyset, sigfillset, sigaddset, sigdelset, sigismember
+- sigprocmask
+- sigsetjmp, siglongjmp
