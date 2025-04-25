@@ -36,3 +36,21 @@ Implement the required functions:
 - sigemptyset, sigfillset, sigaddset, sigdelset, sigismember
 - sigprocmask
 - sigsetjmp, siglongjmp
+
+### Hw1: System Call Hook and Logging
+The system call hooking mechanism is inspired by [zpoline](<https://github.com/yasukata/zpoline>), which won the Best Paper award at USENIX ATC 2023.
+
+`libzpoline.so` is a shared library that hooks Linux system calls by rewriting `syscall` instructions in user space. 
+It redirects execution through a trampoline placed at memory address `0x0`, allowing custom logic (e.g., logging, filtering, modifying behavior) to be executed before invoking the real system call.
+
+**Features**
+
+- Replaces `syscall` instructions with `call *%rax`.
+- Trampoline at `0x0` redirects execution to a C `handler()` function.
+- Compatible with dynamically linked binaries.
+- Supports loading external hook logic via `LIBZPHOOK`.
+
+**Usage**
+
+`LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so command [arg1 arg2 ...]`
+
