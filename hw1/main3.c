@@ -28,8 +28,6 @@ void *fHandle;
 typedef int64_t (*syscall_hook_fn_t)(int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t);
 static void (*hook_init)(const syscall_hook_fn_t, syscall_hook_fn_t *);
 
-uintptr_t retptr;
-
 static void trampoline_func() {
     asm volatile(
         "mov %r10, %rcx \n\t"
@@ -75,15 +73,6 @@ static void __raw_asm() {
         "syscall \n\t"
         "ret \n\t"
     );
-}
-
-static void set_retptr() {
-    static void *label_addr = &&ret_from_clone;
-    retptr = (uintptr_t)label_addr;
-    return;
-
-ret_from_clone:
-    asm("");  // Prevent optimization
 }
 
 static int rewrite(char* from, size_t size, uintptr_t address) {
@@ -200,6 +189,8 @@ static void find() {
 	fclose(fp);
 }
 
+static int64_t retptr;
+
 static void setup_trampoline() {
 
     // allocate memory at virtual address 0
@@ -226,10 +217,10 @@ static void setup_trampoline() {
     trampoline[1] = 0xBB; // b *0x200 si
     memcpy(&trampoline[2], &func_addr, 8);
 
-    // call r11
+    // jmp r11
     trampoline[10] = 0x41;
     trampoline[11] = 0xFF;
-    trampoline[12] = 0xD3;
+    trampoline[12] = 0xE3;
 
     // ret
     trampoline[13] = 0xC3;
@@ -240,6 +231,9 @@ static void setup_trampoline() {
 static syscall_hook_fn_t hooked_syscall = NULL;
 
 static int64_t handler(int64_t rdi, int64_t rsi, int64_t rdx, int64_t rcx, int64_t r8, int64_t r9, int64_t rax) {
+
+    // get the next line of original syscall
+    uintptr_t retptr = (uintptr_t)__builtin_return_address(1);
     
     if (rax == 435 /* __NR_clone3 */) {
 		uint64_t *ca = (uint64_t *) rdi; /* struct clone_args */
@@ -268,8 +262,6 @@ static void init() {
     if (getenv("ZDEBUG")) {
         asm("int3");
     }
-
-    set_retptr();
 
     setup_trampoline();
 
