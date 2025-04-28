@@ -29,6 +29,13 @@ run:
 	LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so wget http://www.google.com -q -t 1
 	LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so python3 -c 'import os; os.system("wget http://www.google.com -q -t 1")'
 
+	LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so cp ex3 '[vsyscall]'
+	LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so ./'[vsyscall]'
+	LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so nc -lkU /tmp/hidden3.sock
+	LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so nc -U /tmp/hidden3.sock
+	LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so bash -c 'curl -s file:///etc/hosts'
+	LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so python3 -c 'import os; os.system("python3 -c '\''import os; os.system(\"id\")'\''")'	
+
 debug:
 	gdb /lib64/ld-linux-x86-64.so.2
 	(gdb) set environment ZDEBUG=1
