@@ -1,5 +1,5 @@
 # NYCU 2024 Spring Advanced Programming in the UNIX Environment
-[113-1] 高等Unix程式設計 (黃俊穎)
+[113-2] 高等Unix程式設計 (黃俊穎)
 ### Lab1: docker & pwntools
 Write a game solver to interact with the challenge server and decode/display the messages received from the server.
 
