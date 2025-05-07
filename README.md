@@ -37,6 +37,12 @@ Implement the required functions:
 - sigprocmask
 - sigsetjmp, siglongjmp
 
+### Lab5: Let’s Race Together
+This lab aims to investigate possible race or reentrant errors from multithreaded programs.
+- Challenge 1: unixfortune.c
+- Challenge 2: flagsrv.cpp
+- Challenge 3: insecureweb.c
+
 ### Hw1: System Call Hook and Logging
 The system call hooking mechanism is inspired by [zpoline](<https://github.com/yasukata/zpoline>), which won the Best Paper award at USENIX ATC 2023.
 
