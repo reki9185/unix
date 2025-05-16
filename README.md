@@ -60,3 +60,123 @@ It redirects execution through a trampoline placed at memory address `0x0`, allo
 
 `LD_PRELOAD=./libzpoline.so LIBZPHOOK=./logger.so command [arg1 arg2 ...]`
 
+### Hw2: Simple Instruction Level Debugger
+In this homework, you have to implement a simple instruction-level debugger that allows a user to debug a program interactively at the assembly instruction level.
+
+**Features**
+
+- Load Program
+  
+  `load [path to a program]`
+  ```
+  (sdb) load ./hello
+  ** program './hello' loaded. entry point: 0x401620.
+        401620: f3 0f 1e fa                      endbr64
+        401624: 31 ed                            xor       ebp, ebp
+        401626: 49 89 d1                         mov       r9, rdx
+        401629: 5e                               pop       rsi
+        40162a: 48 89 e2                         mov       rdx, rsp
+  ```
+- Disassemble: When returning from execution, the debugger should disassemble 5 instructions starting from the current program counter (instruction pointer). 
+- Step Instruction
+  
+  `si`
+  ```
+  (sdb) si
+      401040: 0f 05                             syscall
+  ** the address is out of the range of the text section.
+  (sdb) si
+  ** the target program terminated.
+  ```
+- Continue
+  
+  `cont`
+  ```
+  (sdb) break 0x40100d
+  ** set a breakpoint at 0x40100d.
+  (sdb) cont
+  ** hit a breakpoint at 0x40100d.
+        40100d: 48 8d 05 ec 0f 00 00              lea       rax, [rip + 0xfec]
+        401014: 48 89 c6                          mov       rsi, rax
+        401017: bf 01 00 00 00                    mov       edi, 1
+        40101c: e8 0a 00 00 00                    call      0x40102b
+        401021: bf 00 00 00 00                    mov       edi, 0
+  (sdb) cont
+  hello world!
+  ** the target program terminated.
+  ```
+- Info Registers
+  
+  `info reg`
+  ```
+  (sdb) info reg
+  $rax 0x0000000000000001    $rbx 0x0000000000000000    $rcx 0x0000000000000000
+  $rdx 0x000000000000000e    $rsi 0x0000000000402000    $rdi 0x0000000000000001
+  $rbp 0x00007ffdc479ab68    $rsp 0x00007ffdc479ab60    $r8  0x0000000000000000
+  $r9  0x0000000000000000    $r10 0x0000000000000000    $r11 0x0000000000000000
+  $r12 0x0000000000000000    $r13 0x0000000000000000    $r14 0x0000000000000000
+  $r15 0x0000000000000000    $rip 0x0000000000401030    $eflags 0x0000000000000202
+  ```
+- Breakpoint
+  
+  `break [hex address] | b [hexaddress]`
+  ```
+  (sdb) break 0x401005
+  ** set a breakpoint at 0x401005.
+  ```
+- Break at Offset of Target Binary
+  
+  `breakrva [hex offset]`
+  ```
+  (sdb) breakrva 11C3
+  ** set a breakpoint at 0x60e3bc9321c3.
+  ```
+- Info Breakpoints
+  
+  `info break`
+  ```
+  (sdb) info break
+  Num     Address
+  0       0x4000ba
+  1       0x4000bf
+  ```
+- Delete Breakpoints
+  
+  `delete [id]`
+  ```
+  (sdb) delete 0
+  ** delete breakpoint 0.
+  ```
+- Patch Memory
+  
+  `patch [hex address] [hex string]`
+- System Call
+  
+  `syscall`
+  ```
+  (sdb) syscall
+  ** enter a syscall(1) at 0x401030.
+        401030: 0f 05                           	syscall   
+        401032: c3                              	ret       
+        401033: b8 00 00 00 00                  	mov       eax, 0
+        401038: 0f 05                           	syscall   
+        40103a: c3                              	ret       
+  (sdb) syscall
+  hello world!
+  ** leave a syscall(1) = 14 at 0x401030.
+        401030: 0f 05                           	syscall   
+        401032: c3                              	ret       
+        401033: b8 00 00 00 00                  	mov       eax, 0
+        401038: 0f 05                           	syscall   
+        40103a: c3                              	ret 
+  ```
+- Exit
+  
+  `exit`
+  
+**Usage**
+
+```
+./sdb
+./sdb [program]
+```
