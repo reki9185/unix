@@ -38,7 +38,7 @@ struct breakpoint {
 };
 
 vector<instruction> instructions;
-map<int, breakpoint> breakpoints;
+map<int, breakpoint*> breakpoints;
 
 void disassemble(char* from, size_t size, uintptr_t address) {
 
@@ -71,7 +71,7 @@ void disassemble(char* from, size_t size, uintptr_t address) {
 
 }
 
-class sdb{
+class sdb {
 public:
 
     void set_program(string name) {
@@ -182,10 +182,16 @@ private:
         } else if (cmd == "breakrva") {
             uint64_t var;
             cin >> std::hex >> var;
+            uint64_t addr;
 
             // cout << std::hex << offset << endl;
 
-            uint64_t addr = text_start + (var - offset);
+            if (ehdr.e_type == ET_DYN) {
+                addr = entry_address + (var - offset);
+    
+            } else {
+                addr = text_start + (var - offset);
+            }
 
             set_breakpoint(addr);
 
@@ -318,9 +324,11 @@ private:
         }
 
         cout << "Num\t" << "Address\t" << endl;
-        for (int i = 0; i < breakpoints.size(); i++) {
-            cout << i << "\t0x" << std::hex << breakpoints[i].addr << "\t" << endl; 
-        } 
+        // cout << breakpoints.size() << endl;
+        for (auto &it : breakpoints) {
+            cout << it.first << "\t0x" << std::hex << it.second->addr << "\t" << endl;
+        }
+        
     }
 
     void do_execute() {
@@ -457,8 +465,8 @@ private:
 
     void set_breakpoint(uint64_t addr) {
 
-        breakpoint bp;
-        bp.addr = addr;
+        breakpoint* bp = new breakpoint();
+        bp->addr = addr;
 
         if (find(addr) != -1) {
             cerr << "** there is already a breakpoint at 0x" << std::hex << addr << endl;
@@ -471,12 +479,12 @@ private:
         }
 
         // writes INT3(0xcc) to the target code
-        long data = ptrace(PTRACE_PEEKTEXT, pid, bp.addr, NULL);
+        long data = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, NULL);
         // save the origin code in bp.code
-        bp.code = data & 0xff;
+        bp->code = data & 0xff;
 
         uint64_t int3 = (data & 0xffffffffffffff00) | 0xcc;
-        ptrace(PTRACE_POKETEXT, pid, bp.addr, int3);
+        ptrace(PTRACE_POKETEXT, pid, bp->addr, int3);
         
         cout << "** set a breakpoint at 0x" << addr << "." << endl;
 
@@ -490,16 +498,16 @@ private:
     // for setting bp at entry address
     void set_breakpoint(uint64_t addr, uint64_t entry) {
 
-        breakpoint bp;
-        bp.addr = addr;
+        breakpoint* bp = new breakpoint();
+        bp->addr = addr;
 
         // writes INT3(0xcc) to the target code
-        long data = ptrace(PTRACE_PEEKTEXT, pid, bp.addr, NULL);
+        long data = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, NULL);
         // save the origin code in bp.code
-        bp.code = data & 0xff;
+        bp->code = data & 0xff;
 
         uint64_t int3 = (data & 0xffffffffffffff00) | 0xcc;
-        ptrace(PTRACE_POKETEXT, pid, bp.addr, int3);
+        ptrace(PTRACE_POKETEXT, pid, bp->addr, int3);
 
         breakpoints[0] = bp;
 
@@ -509,22 +517,36 @@ private:
 
         // check if the bp exsist
         if (breakpoints.find(id) == breakpoints.end()) {
-            cerr << "breakpoint " << id << " does not exist." << endl;
+            cerr << "** breakpoint " << id << " does not exist." << endl;
             return;
         }
 
-        if (breakpoints[id].addr != entry_address) {
+        if (breakpoints[id]->addr != entry_address) {
             cout << "** delete breakpoint " << id << "." << endl;
         }
 
-        breakpoints.erase(id);
+        long code = ptrace(PTRACE_PEEKTEXT, pid, (void*)breakpoints[id]->addr, NULL);
+        ptrace(PTRACE_POKETEXT, pid, (void*)breakpoints[id]->addr, (code & 0xffffffffffffff00) | breakpoints[id]->code);
+
+        for (auto it = breakpoints.begin(); it != breakpoints.end();) {
+            if (it->first == id) {
+                it = breakpoints.erase(it);
+                break;
+            }
+            ++it;
+        }
+
+        // delete breakpoints[id];
+        // breakpoints.erase(id);
+
     }
 
     int find(int64_t addr) {
-        for (int i = 0; i < breakpoints.size(); i++) {
-            if (addr == breakpoints[i].addr) {
-                return i;
+        for (auto it = breakpoints.begin(); it != breakpoints.end();) {
+            if (it->second->addr == addr) {
+                return it->first;
             }
+            ++it;
         }
 
         return -1;
@@ -538,8 +560,8 @@ private:
     breakpoint* getBreakpoint(uint64_t addr) {
 
         for (auto &it : breakpoints) {
-            if (it.second.addr == addr) {
-                return &it.second;
+            if (it.second->addr == addr) {
+                return it.second;
             }
         }
 
