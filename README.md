@@ -43,6 +43,9 @@ This lab aims to investigate possible race or reentrant errors from multithreade
 - Challenge 2: flagsrv.cpp
 - Challenge 3: insecureweb.c
 
+### Lab6: Buffer Overflow & Shellcoding Challenges
+This lab aims to practice advanced assembly tricks. Specifically, we focus on implementing buffer overflow attacks and writing shellcodes.
+
 ### Hw1: System Call Hook and Logging
 The system call hooking mechanism is inspired by [zpoline](<https://github.com/yasukata/zpoline>), which won the Best Paper award at USENIX ATC 2023.
 
