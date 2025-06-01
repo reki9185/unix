@@ -35,6 +35,7 @@ struct breakpoint {
     uint64_t addr;
     // origin code of the addr
     unsigned char code;
+    int shift;
 };
 
 vector<instruction> instructions;
@@ -229,14 +230,31 @@ private:
         unsigned char code[64] = {0};
         uint64_t ptr = rip;
 
+        if (!is_executable(rip)) {
+            cout << "** the address is out of the range of the executable region." << endl;
+            return;
+        }
+
         size_t offset = 0;
 
         while(offset < sizeof(code)) {
+
+            if (!is_executable(ptr)) break;
             // get a word from a memory address of the tracee
+            errno = 0;
             long data  = ptrace(PTRACE_PEEKTEXT, pid, ptr, NULL);
 
+            // ptr += offset;
+
+            int cnt = 0;
+            while (data == -1) {
+                ptr -= 1;
+                data  = ptrace(PTRACE_PEEKTEXT, pid, ptr, NULL);
+                cnt++;
+            }
+        
             // check if there is breakpoint (replace int3 to origin code)
-            for (int i = 0; i < 8 && offset < sizeof(code); i++) {
+            for (int i = cnt; i < 8 && offset < sizeof(code); i++) {
                 uint64_t cur_addr = ptr + i;
                 unsigned char byte = (data >> (8 * i)) & 0xff;
 
@@ -252,7 +270,7 @@ private:
 
         instructions.clear();
 
-        disassemble((char*)code, ptr - rip, rip);
+        disassemble((char*)code, offset, rip);
 
         // print the disassembled instructions
         int count = min(5, (int)instructions.size());
@@ -406,8 +424,9 @@ private:
         ptrace(PTRACE_SETREGS, pid, NULL, &regs);
 
         // restore original byte
-        code = ptrace(PTRACE_PEEKTEXT, pid, (void*)bp->addr, NULL);
-        ptrace(PTRACE_POKETEXT, pid, (void*)bp->addr, (code & 0xffffffffffffff00) | bp->code);
+        code = ptrace(PTRACE_PEEKTEXT, pid, (void*)(bp->addr - bp->shift), NULL);
+        code = (code & ~(0xffL << (8 * bp->shift))) | ((long)bp->code << (8 * bp->shift));
+        ptrace(PTRACE_POKETEXT, pid, (void*)(bp->addr - bp->shift), code);
 
         // step the original instruction
         ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL);
@@ -416,11 +435,14 @@ private:
         do_assembly(bp->addr);
 
         // reload breakpoint (so it still a bp next round)
-        code = ptrace(PTRACE_PEEKTEXT, pid, (void*)bp->addr, NULL);
-        ptrace(PTRACE_POKETEXT, pid, (void*)bp->addr, (code & 0xffffffffffffff00) | 0xcc);
+        code = ptrace(PTRACE_PEEKTEXT, pid, (void*)(bp->addr - bp->shift), NULL);
+        // ptrace(PTRACE_POKETEXT, pid, (void*)bp->addr, (code & 0xffffffffffffff00) | 0xcc);
+        uint64_t int3 = (code & ~(0xffL << (8 * bp->shift))) | ((0xccL) << (8 * bp->shift));
+        ptrace(PTRACE_POKETEXT, pid, (void*)(bp->addr - bp->shift), int3);
     }
 
     void do_patch(string &addr_str, string &str) {
+
         uint64_t addr = stoull(addr_str, nullptr, 16);
         size_t len = str.length();
 
@@ -441,18 +463,45 @@ private:
         // patch memory byte by byte
         for (size_t i = 0; i < bytes.size(); i++) {
             uint64_t cur_addr = addr + i;
+            
+            errno = 0;
             uint64_t word = ptrace(PTRACE_PEEKTEXT, pid, cur_addr & ~0x7, nullptr);
-            uint8_t offset = cur_addr & 0x7;
+            int cnt = 0;
+            while (word == -1 && errno != 0) {
+                cnt++;
+                word = ptrace(PTRACE_PEEKTEXT, pid, (cur_addr - cnt) & ~0x7, NULL);
+            }
+
+            uint8_t offset = (cur_addr - cnt) & 0x7;
 
             // patch the byte inside the word
             uint64_t masked_word = (word & ~(0xffULL << (offset * 8))) | ((uint64_t)bytes[i] << (offset * 8));
-            ptrace(PTRACE_POKETEXT, pid, cur_addr & ~0x7, masked_word);
-
-            // TODO: update the breakpoints
+            ptrace(PTRACE_POKETEXT, pid, (cur_addr - cnt) & ~0x7, masked_word);
 
         }
         
         cout << "** patch memory at address 0x" << std::hex << addr << "." << std::endl;
+
+        // ptrace(PTRACE_GETREGS, pid, NULL, &regs);
+        // cout << regs.rip << endl;
+
+        if (regs.rip == addr) {
+            regs.rip = regs.rip;
+            ptrace(PTRACE_SETREGS, pid, NULL, &regs);
+            ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL);
+
+        }
+
+        // update the breakpoints after patch
+        if (breakpoint* bp = getBreakpoint(addr)) {
+
+            long data = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, NULL);
+            // update the origin code in bp.code
+            bp->code = data & 0xff;
+
+            long code = ptrace(PTRACE_PEEKTEXT, pid, (void*)bp->addr, NULL);
+            ptrace(PTRACE_POKETEXT, pid, (void*)bp->addr, (code & 0xffffffffffffff00) | 0xcc);
+        }
 
     }
 
@@ -473,19 +522,41 @@ private:
             return;
         }
 
-        if (addr < text_start || addr >= text_end) {
+        if (!is_executable(addr)) {
             cout << "** the target address is not valid.\n";
             return;
         }
 
         // writes INT3(0xcc) to the target code
-        long data = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, NULL);
-        // save the origin code in bp.code
-        bp->code = data & 0xff;
+        // long data = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, NULL);
 
-        uint64_t int3 = (data & 0xffffffffffffff00) | 0xcc;
-        ptrace(PTRACE_POKETEXT, pid, bp->addr, int3);
+        errno = 0;
+        long data = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, NULL);
+
+        // if PEEK fail, count how much should shift
+        int cnt = 0;
+        while (data == -1 && errno != 0) {
+            cnt++;
+            data = ptrace(PTRACE_PEEKTEXT, pid, bp->addr - cnt, NULL);
+        }
+
+        // save the origin code in bp.code
+        // bp->code = data & 0xff;
+        bp->code = ((data >> (8 * cnt)) & 0xff);
+        bp->shift = cnt;
+        // printf("data: %lx\n", data);
+
+        // uint64_t int3 = (data & 0xffffffffffffff00) | 0xcc;
+
+        uint64_t int3 = (data & ~(0xffL << (8 * cnt))) | ((0xccL) << (8 * cnt));
+        ptrace(PTRACE_POKETEXT, pid, (void*)(bp->addr - cnt), int3);
+
+        // errno = 0;
+        // ptrace(PTRACE_POKETEXT, pid, bp->addr, int3);
         
+        // printf("errno: %d\n", errno);
+        // data = ptrace(PTRACE_PEEKTEXT, pid, bp->addr-2, NULL);
+
         cout << "** set a breakpoint at 0x" << addr << "." << endl;
 
         int bp_id = 0;
@@ -509,7 +580,10 @@ private:
         uint64_t int3 = (data & 0xffffffffffffff00) | 0xcc;
         ptrace(PTRACE_POKETEXT, pid, bp->addr, int3);
 
-        breakpoints[0] = bp;
+        int bp_id = 0;
+        while (breakpoints.count(bp_id)) bp_id++;
+
+        breakpoints[bp_id] = bp;
 
     }
 
@@ -525,8 +599,12 @@ private:
             cout << "** delete breakpoint " << id << "." << endl;
         }
 
-        long code = ptrace(PTRACE_PEEKTEXT, pid, (void*)breakpoints[id]->addr, NULL);
-        ptrace(PTRACE_POKETEXT, pid, (void*)breakpoints[id]->addr, (code & 0xffffffffffffff00) | breakpoints[id]->code);
+        // long code = ptrace(PTRACE_PEEKTEXT, pid, (void*)breakpoints[id]->addr, NULL);
+        // ptrace(PTRACE_POKETEXT, pid, (void*)breakpoints[id]->addr, (code & 0xffffffffffffff00) | breakpoints[id]->code);
+
+        long code = ptrace(PTRACE_PEEKTEXT, pid, (void*)(breakpoints[id]->addr - breakpoints[id]->shift), NULL);
+        code = (code & ~(0xffL << (8 * breakpoints[id]->shift))) | ((long)breakpoints[id]->code << (8 * breakpoints[id]->shift));
+        ptrace(PTRACE_POKETEXT, pid, (void*)(breakpoints[id]->addr - breakpoints[id]->shift), code);
 
         for (auto it = breakpoints.begin(); it != breakpoints.end();) {
             if (it->first == id) {
@@ -624,7 +702,7 @@ private:
 
         set_breakpoint(entry_address, entry_address);
         do_cont();
-        del_breakpoint(0);
+        del_breakpoint(find(entry_address));
 
     }
 
@@ -652,6 +730,32 @@ private:
         fclose(file);
 
         return base_address;
+    }
+
+    bool is_executable(uint64_t addr) {
+
+        ifstream maps("/proc/" + to_string(pid) + "/maps");
+        string line;
+
+        while (getline(maps, line)) {
+
+            stringstream ss(line);
+            string address_range, perms;
+            ss >> address_range >> perms;
+
+            if (perms.find('x') == string::npos) continue;
+    
+            size_t dash = address_range.find('-');
+            uint64_t start = stoull(address_range.substr(0, dash), nullptr, 16);
+            uint64_t end = stoull(address_range.substr(dash + 1), nullptr, 16);
+
+            // cout << start << " " << end << endl;
+
+            if (addr >= start && addr < end)
+                return true;
+        }
+
+        return false;
     }
 
     string program;
