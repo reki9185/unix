@@ -187,12 +187,14 @@ private:
 
             // cout << std::hex << offset << endl;
 
-            if (ehdr.e_type == ET_DYN) {
-                addr = entry_address + (var - offset);
+            // if (ehdr.e_type == ET_DYN) {
+            //     addr = entry_address + (var - offset);
     
-            } else {
-                addr = text_start + (var - offset);
-            }
+            // } else {
+            //     addr = text_start + (var - offset);
+            // }
+
+            addr = var + get_base_address();
 
             set_breakpoint(addr);
 
@@ -303,7 +305,7 @@ private:
     void do_si() {
 
         // if si() after cont() -> ignore
-        if (after_cont) {
+        if (after_cont && !getBreakpoint(regs.rip)) {
             ptrace(PTRACE_GETREGS, pid, NULL, &regs);
             do_assembly(regs.rip);
 
@@ -311,8 +313,42 @@ private:
             return;
         }
 
+        if (after_patch) {
+            ptrace(PTRACE_GETREGS, pid, NULL, &regs);
+            do_assembly(regs.rip);
+
+            after_patch = false;
+            return;
+        }
+
         ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL);
         do_execute();
+
+        // do_assembly(regs.rip);
+        
+    }
+
+    void do_si(int syscall) {
+
+        // if si() after cont() -> ignore
+        if (after_cont && !getBreakpoint(regs.rip)) {
+            ptrace(PTRACE_GETREGS, pid, NULL, &regs);
+            // do_assembly(regs.rip);
+
+            after_cont = false;
+            return;
+        }
+
+        if (after_patch) {
+            ptrace(PTRACE_GETREGS, pid, NULL, &regs);
+            // do_assembly(regs.rip);
+
+            after_patch = false;
+            return;
+        }
+
+        ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL);
+        // do_execute();
 
         // do_assembly(regs.rip);
         
@@ -405,6 +441,9 @@ private:
             do_assembly(addr);
 
             is_syscall = false;
+
+            do_si(1);
+
             return;
         }
 
@@ -455,7 +494,12 @@ private:
         }
 
         // validate address range
-        if (addr < text_start || (addr + bytes.size()) > text_end) {
+        // if (addr < text_start || (addr + bytes.size()) > text_end) {
+        //     cout << "** the target address is not valid." << endl;
+        //     return;
+        // }
+
+        if (!is_executable(addr)) {
             cout << "** the target address is not valid." << endl;
             return;
         }
@@ -485,14 +529,14 @@ private:
         // ptrace(PTRACE_GETREGS, pid, NULL, &regs);
         // cout << regs.rip << endl;
 
-        if (regs.rip == addr) {
-            regs.rip = regs.rip;
-            ptrace(PTRACE_SETREGS, pid, NULL, &regs);
-            ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL);
+        // if (regs.rip == addr) {
+        //     regs.rip = regs.rip;
+        //     ptrace(PTRACE_SETREGS, pid, NULL, &regs);
+        //     ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL);
 
-        }
+        // }
 
-        // update the breakpoints after patch
+        // TODO: update the breakpoints after patch
         if (breakpoint* bp = getBreakpoint(addr)) {
 
             long data = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, NULL);
@@ -501,7 +545,10 @@ private:
 
             long code = ptrace(PTRACE_PEEKTEXT, pid, (void*)bp->addr, NULL);
             ptrace(PTRACE_POKETEXT, pid, (void*)bp->addr, (code & 0xffffffffffffff00) | 0xcc);
+
         }
+
+        // after_patch = true;
 
     }
 
@@ -763,6 +810,8 @@ private:
     struct user_regs_struct regs;
     bool is_syscall = false;
     bool after_cont = false;
+    bool after_patch = false;
+    bool after_syscall = false;
     Elf64_Ehdr ehdr;
     Elf64_Shdr shstrtab;
     uint64_t entry_address;
